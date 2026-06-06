@@ -2,6 +2,8 @@
 
 NestJS API for [Firmstack](https://github.com) — a multi-tenant SaaS platform for business operations and finances.
 
+![Firmstack API — Swagger UI](docs/images/swagger.png)
+
 ## Stack
 
 - NestJS 11
