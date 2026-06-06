@@ -1,6 +1,8 @@
 # Firmstack Backend
 
-NestJS API for [Firmstack](https://github.com) — a multi-tenant SaaS platform for business operations and finances.
+NestJS API for [Firmstack](https://firmstack-fe-nestjs-git-main-kennypapas-projects.vercel.app/) — a multi-tenant SaaS platform for business operations and finances.
+
+**Live frontend:** https://firmstack-fe-nestjs-git-main-kennypapas-projects.vercel.app/
 
 ![Firmstack API — Swagger UI](docs/images/swagger.png)
 
