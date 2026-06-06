@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: firmstack-postgres
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: firmstack
+      POSTGRES_PASSWORD: firmstack
+      POSTGRES_DB: firmstack
+    volumes:
+      - firmstack_pg_data:/var/lib/postgresql/data
+
+volumes:
+  firmstack_pg_data:

@@ -1,0 +1,334 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceType {
+  PERSONAL
+  COMPANY
+}
+
+enum WorkspaceMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum MemberStatus {
+  ACTIVE
+  PENDING
+}
+
+enum PlanId {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING
+  PAID
+  OVERDUE
+}
+
+enum ExpenseCategory {
+  OFFICE
+  SOFTWARE
+  TRAVEL
+  MARKETING
+  OTHER
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+}
+
+enum Currency {
+  USD
+  EUR
+  GBP
+  NGN
+}
+
+enum Timezone {
+  UTC
+  EST
+  CST
+  PST
+  WAT
+  GMT
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  PERSONAL
+  OTHER
+}
+
+enum ActivityType {
+  INVOICE
+  EXPENSE
+  SETTINGS
+  PAYMENT
+  TEAM
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  firstName     String?
+  lastName      String?
+  emailVerified Boolean  @default(false)
+  avatarUrl     String?
+  phone         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ownedWorkspaces         Workspace[]              @relation("WorkspaceOwner")
+  memberships             WorkspaceMember[]
+  sessions                Session[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  expenses                Expense[]
+  activityLogs            ActivityLog[]
+  timeEntries             TimeEntry[]
+  leaveRequests           LeaveRequest[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id           String        @id @default(cuid())
+  type         WorkspaceType
+  name         String
+  industry     String?
+  size         String?
+  ownerId      String
+  planId       PlanId        @default(FREE)
+  currency     Currency      @default(USD)
+  timezone     Timezone      @default(UTC)
+  companyEmail String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  owner                  User                     @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members                WorkspaceMember[]
+  invoices               Invoice[]
+  expenses               Expense[]
+  notificationPreference NotificationPreference?
+  activityLogs           ActivityLog[]
+  timeEntries            TimeEntry[]
+  leaveRequests          LeaveRequest[]
+  payslips               Payslip[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String              @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceMemberRole
+  status      MemberStatus        @default(PENDING)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_members")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verification_tokens")
+}
+
+model Invoice {
+  id          String        @id @default(cuid())
+  workspaceId String
+  number      String
+  status      InvoiceStatus @default(DRAFT)
+  clientName  String
+  clientEmail String
+  clientAddress String?
+  fromName    String
+  fromEmail   String
+  invoiceDate DateTime
+  dueDate     DateTime
+  currency    Currency
+  subtotal    Decimal       @db.Decimal(12, 2)
+  taxPercent  Decimal       @db.Decimal(5, 2)
+  tax         Decimal       @db.Decimal(12, 2)
+  discount    Decimal       @default(0) @db.Decimal(12, 2)
+  grandTotal  Decimal       @db.Decimal(12, 2)
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lineItems InvoiceLineItem[]
+  activity  InvoiceActivity[]
+
+  @@unique([workspaceId, number])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal @db.Decimal(12, 2)
+  total       Decimal @db.Decimal(12, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_line_items")
+}
+
+model InvoiceActivity {
+  id        String   @id @default(cuid())
+  invoiceId String
+  action    String
+  done      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_activities")
+}
+
+model Expense {
+  id          String          @id @default(cuid())
+  workspaceId String
+  userId      String
+  date        DateTime
+  category    ExpenseCategory
+  description String
+  amount      Decimal         @db.Decimal(12, 2)
+  status      ExpenseStatus   @default(PENDING)
+  receiptUrl  String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("expenses")
+}
+
+model NotificationPreference {
+  id           String  @id @default(cuid())
+  workspaceId  String  @unique
+  emailInvoice Boolean @default(true)
+  emailExpense Boolean @default(true)
+  emailTeam    Boolean @default(true)
+  emailWeekly  Boolean @default(false)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+model ActivityLog {
+  id          String       @id @default(cuid())
+  workspaceId String
+  userId      String?
+  action      String
+  type        ActivityType
+  createdAt   DateTime     @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id])
+
+  @@map("activity_logs")
+}
+
+model TimeEntry {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  clockIn     DateTime
+  clockOut    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("time_entries")
+}
+
+model LeaveRequest {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  leaveType   LeaveType
+  fromDate    DateTime
+  toDate      DateTime
+  reason      String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("leave_requests")
+}
+
+model Payslip {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  month       String
+  year        Int
+  downloadUrl String
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("payslips")
+}
