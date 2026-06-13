@@ -20,21 +20,28 @@ const PASSWORD_PATTERN =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).+$/;
 
 export class RegisterDto {
-  @ApiProperty({ enum: RegisterWorkspaceType })
+  @ApiProperty({
+    enum: RegisterWorkspaceType,
+    example: RegisterWorkspaceType.PERSONAL,
+  })
   @IsEnum(RegisterWorkspaceType)
   workspaceType!: RegisterWorkspaceType;
 
-  @ApiPropertyOptional({ description: 'Required when workspaceType is company' })
+  @ApiPropertyOptional({
+    description: 'Required when workspaceType is company',
+    example: '',
+  })
   @ValidateIf((dto: RegisterDto) => dto.workspaceType === RegisterWorkspaceType.COMPANY)
   @IsString()
   @IsNotEmpty()
   companyName?: string;
 
-  @ApiProperty({ example: 'founder@acme.com' })
+  @ApiProperty({ example: '' })
   @IsEmail()
   email!: string;
 
   @ApiProperty({
+    example: '',
     description:
       'Min 8 chars, 1 uppercase, 1 lowercase, 1 digit, 1 special (!@#$%^&*)',
   })
@@ -45,17 +52,17 @@ export class RegisterDto {
   })
   password!: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: '' })
   @IsOptional()
   @IsString()
   firstName?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: '' })
   @IsOptional()
   @IsString()
   lastName?: string;
 
-  @ApiProperty()
+  @ApiProperty({ example: true })
   @IsBoolean()
   agreedToTerms!: boolean;
 }

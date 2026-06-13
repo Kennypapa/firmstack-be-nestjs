@@ -5,6 +5,11 @@ import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './modules/health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { WorkspacesModule } from './modules/workspaces/workspaces.module';
+import { InvoicesModule } from './modules/invoices/invoices.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
+import { TeamModule } from './modules/team/team.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -16,6 +21,11 @@ import { AuthModule } from './modules/auth/auth.module';
     PrismaModule,
     HealthModule,
     AuthModule,
+    WorkspacesModule,
+    InvoicesModule,
+    ExpensesModule,
+    TeamModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}
