@@ -3,15 +3,20 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { AuthenticatedUser } from '../../../common/decorators/current-user.decorator';
+import { AuthService } from '../auth.service';
 
 interface JwtPayload {
   sub: string;
   email: string;
+  sid?: string;
 }
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    private readonly authService: AuthService,
+  ) {
     const secret = configService.get<string>('jwt.secret');
 
     if (!secret) {
@@ -25,11 +30,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: JwtPayload): AuthenticatedUser {
+  async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     if (!payload?.sub) {
       throw new UnauthorizedException();
     }
 
-    return { id: payload.sub, email: payload.email };
+    if (payload.sid) {
+      const valid = await this.authService.validateSession(payload.sid);
+      if (!valid) {
+        throw new UnauthorizedException('Session expired or revoked');
+      }
+    }
+
+    return {
+      id: payload.sub,
+      email: payload.email,
+      sessionId: payload.sid,
+    };
   }
 }

@@ -10,6 +10,8 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { TeamModule } from './modules/team/team.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { UsersModule } from './modules/users/users.module';
+import { BillingModule } from './modules/billing/billing.module';
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     ExpensesModule,
     TeamModule,
     DashboardModule,
+    UsersModule,
+    BillingModule,
   ],
 })
 export class AppModule {}

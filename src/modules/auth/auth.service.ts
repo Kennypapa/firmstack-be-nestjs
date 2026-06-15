@@ -1,10 +1,13 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import {
   Prisma,
   WorkspaceMemberRole,
@@ -13,8 +16,14 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterDto, RegisterWorkspaceType } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 const SALT_ROUNDS = 12;
+const SESSION_DAYS = 7;
+const RESET_TOKEN_HOURS = 1;
+const VERIFY_TOKEN_HOURS = 24;
 
 @Injectable()
 export class AuthService {
@@ -34,7 +43,6 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
     const isCompany = dto.workspaceType === RegisterWorkspaceType.COMPANY;
-
     const workspaceName = isCompany
       ? (dto.companyName as string)
       : 'Personal Workspace';
@@ -67,13 +75,21 @@ export class AuthService {
         },
       });
 
+      await tx.emailVerificationToken.create({
+        data: {
+          userId: createdUser.id,
+          token: this.generateToken(),
+          expiresAt: this.hoursFromNow(VERIFY_TOKEN_HOURS),
+        },
+      });
+
       return createdUser;
     });
 
-    const token = this.signToken(user.id, user.email);
+    const { accessToken } = await this.issueToken(user.id, user.email);
 
     return {
-      accessToken: token,
+      accessToken,
       user: this.toUserResponse(user),
       nextStep: isCompany ? 'onboarding' : 'dashboard',
     };
@@ -94,12 +110,171 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const token = this.signToken(user.id, user.email);
+    const expiresInDays = dto.rememberMe ? 30 : SESSION_DAYS;
+    const { accessToken } = await this.issueToken(user.id, user.email, expiresInDays);
 
     return {
-      accessToken: token,
+      accessToken,
       user: this.toUserResponse(user),
     };
+  }
+
+  async logout(sessionId?: string) {
+    if (sessionId) {
+      await this.prisma.session.deleteMany({ where: { id: sessionId } });
+    }
+
+    return { message: 'Logged out successfully' };
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+
+    if (!valid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, SALT_ROUNDS);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+    });
+
+    await this.prisma.session.deleteMany({ where: { userId } });
+
+    return { message: 'Password updated successfully' };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase() },
+    });
+
+    if (user) {
+      await this.prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+      await this.prisma.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          token: this.generateToken(),
+          expiresAt: this.hoursFromNow(RESET_TOKEN_HOURS),
+        },
+      });
+    }
+
+    return {
+      message: 'If an account exists for that email, a reset link has been sent',
+    };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const record = await this.prisma.passwordResetToken.findUnique({
+      where: { token: dto.token },
+    });
+
+    if (!record || record.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: record.userId },
+        data: { passwordHash },
+      }),
+      this.prisma.passwordResetToken.delete({ where: { id: record.id } }),
+      this.prisma.session.deleteMany({ where: { userId: record.userId } }),
+    ]);
+
+    return { message: 'Password reset successfully' };
+  }
+
+  async verifyEmail(token: string) {
+    const record = await this.prisma.emailVerificationToken.findUnique({
+      where: { token },
+    });
+
+    if (!record || record.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: record.userId },
+        data: { emailVerified: true },
+      }),
+      this.prisma.emailVerificationToken.delete({ where: { id: record.id } }),
+    ]);
+
+    return { message: 'Email verified successfully' };
+  }
+
+  async resendVerification(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.emailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    await this.prisma.emailVerificationToken.deleteMany({ where: { userId } });
+    await this.prisma.emailVerificationToken.create({
+      data: {
+        userId,
+        token: this.generateToken(),
+        expiresAt: this.hoursFromNow(VERIFY_TOKEN_HOURS),
+      },
+    });
+
+    return { message: 'Verification email sent' };
+  }
+
+  async listSessions(userId: string) {
+    const sessions = await this.prisma.session.findMany({
+      where: { userId, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        userAgent: true,
+        ipAddress: true,
+        createdAt: true,
+        expiresAt: true,
+      },
+    });
+
+    return sessions.map((session) => ({
+      id: session.id,
+      userAgent: session.userAgent,
+      ipAddress: session.ipAddress,
+      createdAt: session.createdAt.toISOString(),
+      expiresAt: session.expiresAt.toISOString(),
+    }));
+  }
+
+  async revokeSession(userId: string, sessionId: string) {
+    const result = await this.prisma.session.deleteMany({
+      where: { id: sessionId, userId },
+    });
+
+    if (result.count === 0) {
+      throw new NotFoundException('Session not found');
+    }
+
+    return { id: sessionId, revoked: true };
   }
 
   async getProfile(userId: string) {
@@ -131,8 +306,44 @@ export class AuthService {
     };
   }
 
-  private signToken(userId: string, email: string) {
-    return this.jwtService.sign({ sub: userId, email });
+  async validateSession(sessionId: string) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    return !!session && session.expiresAt > new Date();
+  }
+
+  private async issueToken(userId: string, email: string, days = SESSION_DAYS) {
+    const sessionToken = this.generateToken();
+    const expiresAt = this.daysFromNow(days);
+
+    const session = await this.prisma.session.create({
+      data: {
+        userId,
+        token: sessionToken,
+        expiresAt,
+      },
+    });
+
+    const accessToken = this.jwtService.sign(
+      { sub: userId, email, sid: session.id },
+      { expiresIn: `${days}d` as `${number}d` },
+    );
+
+    return { accessToken, sessionId: session.id };
+  }
+
+  private generateToken() {
+    return randomBytes(32).toString('hex');
+  }
+
+  private hoursFromNow(hours: number) {
+    return new Date(Date.now() + hours * 60 * 60 * 1000);
+  }
+
+  private daysFromNow(days: number) {
+    return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
   }
 
   private toUserResponse(
