@@ -12,6 +12,7 @@ import { TeamModule } from './modules/team/team.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { UsersModule } from './modules/users/users.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { PortalModule } from './modules/portal/portal.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { BillingModule } from './modules/billing/billing.module';
     DashboardModule,
     UsersModule,
     BillingModule,
+    PortalModule,
   ],
 })
 export class AppModule {}

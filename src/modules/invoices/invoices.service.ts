@@ -1,4 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { randomBytes } from 'crypto';
 import {
   ActivityType,
   InvoiceStatus,
@@ -11,6 +13,7 @@ import {
   InvoiceStatusFilter,
   QueryInvoicesDto,
 } from './dto/query-invoices.dto';
+import { generateInvoicePdf } from './invoice-pdf.generator';
 
 const invoiceInclude = {
   lineItems: true,
@@ -23,7 +26,10 @@ type InvoiceWithRelations = Prisma.InvoiceGetPayload<{
 
 @Injectable()
 export class InvoicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async create(workspaceId: string, userId: string, dto: CreateInvoiceDto) {
     const totals = this.computeTotals(
@@ -323,6 +329,117 @@ export class InvoicesService {
     });
 
     return this.toResponse(invoice);
+  }
+
+  async generatePdf(workspaceId: string, id: string) {
+    const invoice = await this.findInvoiceOrThrow(workspaceId, id);
+    return this.buildPdf(invoice);
+  }
+
+  async getPublicLink(workspaceId: string, id: string) {
+    const invoice = await this.findInvoiceOrThrow(workspaceId, id);
+    const token = await this.ensurePublicToken(invoice.id, invoice.publicToken);
+    const appUrl = this.configService.get<string>('appUrl', 'http://localhost:3000');
+    const apiPrefix = this.configService.get<string>('apiPrefix', 'api/v1');
+
+    return {
+      url: `${appUrl}/${apiPrefix}/public/invoices/${token}`,
+      token,
+    };
+  }
+
+  async findByPublicToken(token: string) {
+    const invoice = await this.findByPublicTokenOrThrow(token);
+    await this.recordClientView(invoice.id);
+    return this.toResponse(invoice);
+  }
+
+  async generatePublicPdf(token: string) {
+    const invoice = await this.findByPublicTokenOrThrow(token);
+    return this.buildPdf(invoice);
+  }
+
+  private async findByPublicTokenOrThrow(token: string) {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { publicToken: token },
+      include: invoiceInclude,
+    });
+
+    if (!invoice) {
+      throw new NotFoundException('Invoice not found');
+    }
+
+    return invoice;
+  }
+
+  private async recordClientView(invoiceId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const viewed = await tx.invoiceActivity.findFirst({
+        where: { invoiceId, action: 'Client viewed invoice' },
+      });
+
+      if (!viewed) {
+        await tx.invoiceActivity.create({
+          data: {
+            invoiceId,
+            action: 'Client viewed invoice',
+            done: true,
+          },
+        });
+      }
+    });
+  }
+
+  private async buildPdf(invoice: InvoiceWithRelations) {
+    const response = this.toResponse(invoice);
+    const buffer = await generateInvoicePdf({
+      number: response.number,
+      status: response.status,
+      clientName: response.client.name,
+      clientEmail: response.client.email,
+      clientAddress: response.client.address,
+      fromName: response.from.name,
+      fromEmail: response.from.email,
+      invoiceDate: response.invoiceDate,
+      dueDate: response.dueDate,
+      currency: response.currency,
+      lineItems: response.lineItems,
+      subtotal: response.subtotal,
+      taxPercent: response.taxPercent,
+      tax: response.tax,
+      discount: response.discount,
+      grandTotal: response.grandTotal,
+      notes: response.notes,
+    });
+
+    return { buffer, filename: `${response.number}.pdf` };
+  }
+
+  private async findInvoiceOrThrow(workspaceId: string, id: string) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id, workspaceId },
+      include: invoiceInclude,
+    });
+
+    if (!invoice) {
+      throw new NotFoundException('Invoice not found');
+    }
+
+    return invoice;
+  }
+
+  private async ensurePublicToken(invoiceId: string, existing?: string | null) {
+    if (existing) {
+      return existing;
+    }
+
+    const token = randomBytes(24).toString('hex');
+    await this.prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { publicToken: token },
+    });
+
+    return token;
   }
 
   private async computeAggregates(workspaceId: string, now: Date) {

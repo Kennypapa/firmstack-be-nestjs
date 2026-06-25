@@ -101,6 +101,7 @@ model User {
   activityLogs            ActivityLog[]
   timeEntries             TimeEntry[]
   leaveRequests           LeaveRequest[]
+  payslips                Payslip[]
 
   @@map("users")
 }
@@ -205,6 +206,7 @@ model Invoice {
   discount    Decimal       @default(0) @db.Decimal(12, 2)
   grandTotal  Decimal       @db.Decimal(12, 2)
   notes       String?
+  publicToken String?       @unique
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -329,6 +331,7 @@ model Payslip {
   createdAt   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
 
   @@map("payslips")
 }

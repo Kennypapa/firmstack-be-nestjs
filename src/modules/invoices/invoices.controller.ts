@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -39,6 +40,32 @@ export class InvoicesController {
     @Query() query: QueryInvoicesDto,
   ) {
     return this.invoicesService.findAll(workspaceId, query);
+  }
+
+  @Get(':id/public-link')
+  @ApiOperation({ summary: 'Get a shareable public link for an invoice' })
+  getPublicLink(
+    @CurrentWorkspace('id') workspaceId: string,
+    @Param('id') id: string,
+  ) {
+    return this.invoicesService.getPublicLink(workspaceId, id);
+  }
+
+  @Get(':id/pdf')
+  @ApiOperation({ summary: 'Download invoice as PDF' })
+  async downloadPdf(
+    @CurrentWorkspace('id') workspaceId: string,
+    @Param('id') id: string,
+  ) {
+    const { buffer, filename } = await this.invoicesService.generatePdf(
+      workspaceId,
+      id,
+    );
+
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${filename}"`,
+    });
   }
 
   @Get(':id')

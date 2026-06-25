@@ -12,4 +12,5 @@ export default () => ({
   cors: {
     origins: (process.env.CORS_ORIGINS ?? 'http://localhost:3001').split(','),
   },
+  appUrl: process.env.APP_URL ?? 'http://localhost:3000',
 });
